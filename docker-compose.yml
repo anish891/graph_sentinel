@@ -1,0 +1,94 @@
+# GraphSentinel AI — local / demo stack.
+# Usage: cp .env.example .env && make up
+name: graphsentinel
+
+services:
+  falkordb:
+    # Pinned for reproducible builds. Upgrade deliberately and re-run `make test-graph`.
+    image: falkordb/falkordb:v4.22.0
+    restart: unless-stopped
+    environment:
+      # Disable the bundled browser UI; we never expose a raw query console.
+      BROWSER: "0"
+      # Only the password is passed in (used by the health check); the rest of
+      # .env (e.g. the Azure key) is never given to this container.
+      FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in .env}
+      # RDB snapshots (not AOF): FalkorDB v4.22 crashed replaying an AOF containing repeated graph
+      # delete/re-create cycles with constraints (observed in testing). Snapshots every 60s if any
+      # write occurred, plus a final snapshot on graceful shutdown. Worst case on a hard crash: <=60s of
+      # graph writes lost; the investigation/audit system of record is SQLite (see docs/deployment.md).
+      REDIS_ARGS: "--requirepass ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in .env} --appendonly no --save 60 1 --save 300 10"
+      FALKORDB_ARGS: "TIMEOUT_DEFAULT 5000 TIMEOUT_MAX 30000 RESULTSET_SIZE 10000 MAX_QUEUED_QUERIES 50"
+    volumes:
+      - falkordb-data:/var/lib/falkordb/data
+    # Bound to loopback only: reachable from developer tools on this machine,
+    # never from the network.
+    ports:
+      - "127.0.0.1:${FALKORDB_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$FALKORDB_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      SQLITE_PATH: /app/runtime/graphsentinel.db
+      SYNTHETIC_DATA_DIR: /app/data/synthetic
+    volumes:
+      - backend-data:/app/runtime
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    # nginx serves the SPA and reverse-proxies /api to the backend (single origin,
+    # so the browser never needs CORS and never talks to FalkorDB or Azure).
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+volumes:
+  falkordb-data:
+  backend-data:

@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    services:
+      falkordb:
+        image: falkordb/falkordb:v4.22.0
+        env:
+          BROWSER: "0"
+          REDIS_ARGS: "--requirepass ci-test-password --appendonly no"
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli -a ci-test-password --no-auth-warning ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      FALKORDB_HOST: localhost
+      FALKORDB_PORT: "6379"
+      FALKORDB_PASSWORD: ci-test-password
+      APP_ENV: test
+      DEMO_MODE: "true"
+      LLM_PROVIDER: mock
+      AUTH_SECRET_KEY: ci-only-not-a-secret-ci-only-not-a-secret-123456
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.7"
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check app tests && uv run ruff format --check app tests
+      - name: Type check
+        run: uv run mypy app
+      - name: Tests (unit + real FalkorDB integration + evaluation scenarios)
+        run: uv run pytest -q --cov=app --cov-report=term-missing:skip-covered
+      - name: Evaluation report
+        run: uv run graphsentinel eval --output-dir ../reports
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-report
+          path: reports/
+      - name: Dependency audit
+        run: uv run pip-audit --progress-spinner off
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Dependency audit (production deps)
+        run: npm audit --omit=dev --audit-level=high
+
+  e2e:
+    runs-on: ubuntu-24.04
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Create CI .env (no real secrets)
+        run: |
+          cp .env.example .env
+          sed -i -e 's|^FALKORDB_PASSWORD=.*|FALKORDB_PASSWORD=ci-e2e-password|' \
+                 -e 's|^AUTH_SECRET_KEY=.*|AUTH_SECRET_KEY=ci-only-not-a-secret-ci-only-not-a-secret-123456|' .env
+      - name: Start stack
+        run: |
+          docker compose up -d --build --wait
+          docker compose exec -T backend graphsentinel seed
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          E2E_BASE_URL=http://localhost:8080 npx playwright test
+      - if: failure()
+        run: docker compose logs --tail 200
+
+  container-scan:
+    runs-on: ubuntu-24.04
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          docker build -f backend/Dockerfile -t graphsentinel-backend:ci .
+          docker build -t graphsentinel-frontend:ci frontend
+      - name: Trivy scan (backend)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: graphsentinel-backend:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Trivy scan (frontend)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: graphsentinel-frontend:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

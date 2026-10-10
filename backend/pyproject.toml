@@ -1,0 +1,94 @@
+[project]
+name = "graphsentinel-backend"
+version = "0.1.0"
+description = "GraphSentinel AI — explainable, graph-native security investigation agent (FalkorDB + Azure OpenAI)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.143.0",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.14.0",
+    "pydantic-settings==2.15.0",
+    "falkordb==1.7.1",
+    "redis==8.1.0",
+    "openai==3.27.0",
+    "aiosqlite==0.22.1",
+    "pyjwt[crypto]==2.15.1",
+    "structlog==26.1.0",
+    "prometheus-client==0.26.0",
+    "opentelemetry-api==1.45.1",
+    "opentelemetry-sdk==1.45.1",
+    "opentelemetry-exporter-otlp-proto-http==1.45.1",
+    "mcp==2.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "httpx==0.28.1",
+    "ruff==0.16.10",
+    "mypy==2.4.0",
+    "pip-audit==2.10.1",
+]
+
+[project.scripts]
+graphsentinel = "app.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "RUF", "SIM", "PL"]
+ignore = [
+    "PLR0913",  # many-argument functions are fine for typed services
+    "PLR2004",  # magic numbers are documented constants in risk/policy
+    "PLR0911", "PLR0912", "PLR0915",
+    "S101",     # assert used in tests
+    "RUF012",
+    "PLR0917",  # positional args in internal helpers
+    "PLC0415",  # deliberate lazy imports (optional deps, cycles)
+    "RUF001", "RUF002", "RUF003",  # typographic characters (≥, –) in user-facing text
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PLR", "B", "ASYNC"]
+"app/api/**" = ["B008"]   # FastAPI dependency injection uses call defaults by design
+"app/cli.py" = ["ASYNC240"]
+"app/evaluation/runner.py" = ["ASYNC240"]
+# WHERE clauses are assembled only from constant fragments with `?` placeholders; values are bound.
+"app/persistence/stores.py" = ["S608"]
+"app/services/audit.py" = ["S608"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+exclude = ["tests/"]
+
+[[tool.mypy.overrides]]
+module = ["falkordb.*", "redis.*", "prometheus_client.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+markers = [
+    "graph: requires a running FalkorDB (docker compose up falkordb)",
+    "azure: requires live Azure OpenAI credentials (never run in CI by default)",
+]
+addopts = "-ra"
