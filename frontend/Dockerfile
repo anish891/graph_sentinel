@@ -7,7 +7,11 @@ COPY . .
 RUN npm run build
 
 # Unprivileged nginx (runs as uid 101, listens on 8080).
-FROM nginxinc/nginx-unprivileged:1.29.1-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.30.5-alpine3.24 AS runtime
+# Apply OS security updates published after the base image was built, then drop back to uid 101.
+USER root
+RUN apk upgrade --no-cache
+USER 101
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/dist /usr/share/nginx/html

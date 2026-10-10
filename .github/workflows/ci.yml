@@ -111,14 +111,14 @@ jobs:
           docker build -f backend/Dockerfile -t graphsentinel-backend:ci .
           docker build -t graphsentinel-frontend:ci frontend
       - name: Trivy scan (backend)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: graphsentinel-backend:ci
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
       - name: Trivy scan (frontend)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: graphsentinel-frontend:ci
           severity: CRITICAL,HIGH

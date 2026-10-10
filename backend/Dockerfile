@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Build context: repository root (see docker-compose.yml)
 
-FROM python:3.12.13-slim-bookworm AS build
+FROM python:3.12.15-slim-trixie AS build
 COPY --from=ghcr.io/astral-sh/uv:0.9.7 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
@@ -10,9 +10,11 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY backend/app ./app
 RUN uv sync --frozen --no-dev
 
-FROM python:3.12.13-slim-bookworm AS runtime
+FROM python:3.12.15-slim-trixie AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH="/app/.venv/bin:$PATH" \
     SYNTHETIC_DATA_DIR=/app/data/synthetic SQLITE_PATH=/app/runtime/graphsentinel.db
+# Apply OS security updates published after the base image was built.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home app
 WORKDIR /app
 COPY --from=build --chown=app:app /app /app
