@@ -27,6 +27,7 @@ def _exc(cls: type[Exception], status: int = 0) -> Exception:
 def settings(**kw: Any) -> Settings:
     base: dict[str, Any] = {
         "groq_api_key": "gsk_test_not_real",
+        "llm_provider": "auto",
         "_env_file": None,
         "llm_max_retries": 1,
         "azure_openai_api_key": None,
