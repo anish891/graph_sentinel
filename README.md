@@ -219,3 +219,7 @@ docs/      architecture, schema, threat model, agent design, API, deployment, ev
 .github/workflows/ci.yml   lint, types, tests with FalkorDB service, e2e, pip/npm audit, Trivy, gitleaks
 docker-compose.yml, Makefile, .env.example
 ```
+
+## Author
+
+Built by [Anish Tejwani](https://anishtejwani.dev).
