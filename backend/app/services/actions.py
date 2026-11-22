@@ -198,7 +198,10 @@ class ActionService:
                 if not action.requires_approval:
                     raise ConflictError("This action does not require approval.")
                 inv = await self.investigations.get(principal.tenant, action.investigation_id)
-                if inv is not None and inv.requested_by == principal.id:
+                if inv is None:
+                    # Fail closed: without the investigation we cannot prove the decider is not the requester.
+                    raise ConflictError("The investigation for this action was not found; it cannot be decided.")
+                if inv.requested_by == principal.id:
                     await self.audit.record(
                         actor=principal.id,
                         actor_role=principal.role,
