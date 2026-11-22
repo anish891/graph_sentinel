@@ -7,6 +7,7 @@ validator refuses to start production with demo auth.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import time
 from dataclasses import dataclass
@@ -104,11 +105,13 @@ class TokenService:
         return principal, str(claims.get("csrf", ""))
 
     # ---- OIDC --------------------------------------------------------------------------------
-    def verify_oidc(self, token: str) -> Principal:
+    async def verify_oidc(self, token: str) -> Principal:
         if self._jwks is None:
             raise AuthenticationRequiredError("OIDC is not configured.")
         try:
-            signing_key = self._jwks.get_signing_key_from_jwt(token)
+            # PyJWKClient fetches the JWKS with blocking HTTP on a cache miss; run it in a worker thread so a
+            # slow identity provider cannot stall the event loop (and every other request with it).
+            signing_key = await asyncio.to_thread(self._jwks.get_signing_key_from_jwt, token)
             claims: dict[str, Any] = jwt.decode(
                 token,
                 signing_key.key,

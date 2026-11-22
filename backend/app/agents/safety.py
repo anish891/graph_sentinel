@@ -66,5 +66,10 @@ def injection_signals(text: str | None) -> list[str]:
 
 
 def wrap_untrusted(text: str | None, max_len: int = 600) -> str:
-    """Delimit untrusted text so the model can see where data starts and ends."""
-    return f"<untrusted_data>{sanitize_text(text, max_len)}</untrusted_data>"
+    """Delimit untrusted text so the model can see where data starts and ends.
+
+    Angle brackets inside the data are escaped, so the data cannot close the delimiter early
+    (`</untrusted_data>`) or open a tag of its own.
+    """
+    body = sanitize_text(text, max_len).replace("<", "&lt;").replace(">", "&gt;")
+    return f"<untrusted_data>{body}</untrusted_data>"

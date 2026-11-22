@@ -33,7 +33,7 @@ async def get_principal(request: Request, state: StateDep) -> Principal:
     if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
         if state.settings.auth_mode == "oidc":
-            principal = state.tokens.verify_oidc(token)
+            principal = await state.tokens.verify_oidc(token)
         else:
             principal, _ = state.tokens.verify_demo(token)
         # Bearer tokens are not sent automatically by browsers, so no CSRF check is needed.
